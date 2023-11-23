@@ -1,6 +1,6 @@
 {
     "manifest_version": 3,
-    "name": "PageChat",
+    "name": "Miru",
     "version": "1.0.0",
     "icons": {
         "16": "src/assets/page-chat@16.png",
