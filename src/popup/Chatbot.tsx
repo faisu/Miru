@@ -1,6 +1,7 @@
 import {
   ConversationChain,
   ConversationalRetrievalQAChain,
+  LLMChain,
 } from "langchain/chains";
 import { ChatOpenAI } from "langchain/chat_models/openai";
 import { OpenAIEmbeddings } from "langchain/embeddings/openai";
@@ -18,6 +19,9 @@ import {
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { VectorStore } from "langchain/vectorstores/base";
 import { MemoryVectorStore } from "langchain/vectorstores/memory";
+import { AgentExecutor } from "langchain/agents";
+import { Calculator } from "langchain/tools/calculator";
+
 import {
   FormEvent,
   useCallback,
@@ -31,6 +35,7 @@ import { ChatMode } from "../common/SettingsStoreProvider";
 import { Select } from "../common/select/Select";
 import { StorageKeys } from "../utils/constants";
 import { getCurrentPageContent } from "../utils/getPageContent";
+import { getAgent } from "../utils/llmChains";
 import { useChatHistory } from "../utils/useChatHistory";
 import { useSettingsStore } from "../utils/useSettingsStore";
 import { useStoredState } from "../utils/useStoredState";
@@ -60,6 +65,10 @@ const ChatModeOptions = [
   {
     label: "Chat with page",
     value: "with-page",
+  },
+  {
+    label: "Chat with agent",
+    value: "with-agent",
   },
 ];
 
@@ -168,6 +177,11 @@ export default function Chatbot() {
       );
     }
 
+    if (chatMode === "with-agent") {
+      const tools = [new Calculator()];
+      return getAgent(llm, tools);
+    }
+
     return new ConversationChain({
       memory: new BufferMemory({
         returnMessages: true,
@@ -214,7 +228,6 @@ export default function Chatbot() {
 
         setUserInputAwaitingResponse(userInput);
         setUserInput("");
-
         if (chain instanceof ConversationChain) {
           await chain.call({
             input: userInput,
@@ -237,6 +250,17 @@ export default function Chatbot() {
             ...history,
             new HumanChatMessage(userInput),
             new AIChatMessage(response.text),
+          ]);
+        } else if (chain instanceof AgentExecutor) {
+          const response = await chain.call({
+            input: userInput,
+            signal: abortControllerRef.current?.signal,
+          });
+          console.log('response', response);
+          setHistory((history) => [
+            ...history,
+            new HumanChatMessage(userInput),
+            new AIChatMessage(response.output),
           ]);
         }
       } catch (error) {

@@ -97,6 +97,7 @@ export default function PageSummary() {
         if (!pageContent) return;
 
         const llm = new ChatOpenAI({
+          modelName: "gpt-4-1106-preview",
           openAIApiKey: openAIApiKey,
           //   temperature: 0,
         });

@@ -1,16 +1,19 @@
 export type GetPageContentRequest = {
-  action: "getPageContent";
+  action: "getPageContent" | "clickElement";
+  payload?: string;
 };
+
 export type GetPageContentResponse = {
   pageContent: string;
   links: { text: string; href: string }[];
 };
 
-chrome.runtime.onMessage.addListener(function (
+chrome.runtime.onMessage.addListener( function (
   request: GetPageContentRequest,
   _sender,
   sendResponse
 ) {
+  console.log('content')
   if (request.action === "getPageContent") {
     const primaryContentElement =
       document.body.querySelector("article") ??
@@ -28,5 +31,7 @@ chrome.runtime.onMessage.addListener(function (
       pageContent: primaryContentElement.innerText,
       links: links,
     } as GetPageContentResponse);
+  // } else if (request.action === "clickElement") {
+
   }
 });

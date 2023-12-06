@@ -11,4 +11,10 @@ export default defineConfig({
       localsConvention: "camelCaseOnly",
     },
   },
+  server: {
+    strictPort: true,
+    hmr: {
+      clientPort: 5173
+    }
+  }
 });
