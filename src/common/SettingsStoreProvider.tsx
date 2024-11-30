@@ -2,7 +2,7 @@ import { createContext, useMemo } from "react";
 import { StorageKeys } from "../utils/constants";
 import { useStoredState } from "../utils/useStoredState";
 
-export type ChatMode = "with-page" | "with-llm" | "with-agent";
+export type ChatMode = "with-llm" | "with-agent";
 
 export interface Settings {
   openAIApiKey?: string;

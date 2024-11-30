@@ -1,10 +1,9 @@
 import {
   ConversationChain,
   ConversationalRetrievalQAChain,
-  LLMChain,
 } from "langchain/chains";
 import { ChatOpenAI } from "langchain/chat_models/openai";
-import { OpenAIEmbeddings } from "langchain/embeddings/openai";
+
 import { BufferMemory } from "langchain/memory";
 import {
   ChatPromptTemplate,
@@ -16,11 +15,9 @@ import {
   BaseChatMessage,
   HumanChatMessage,
 } from "langchain/schema";
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-import { VectorStore } from "langchain/vectorstores/base";
-import { MemoryVectorStore } from "langchain/vectorstores/memory";
+// import * as cheerio from 'cheerio';
+
 import { AgentExecutor } from "langchain/agents";
-import { Calculator } from "langchain/tools/calculator";
 
 import {
   FormEvent,
@@ -34,11 +31,12 @@ import ReactMarkdown from "react-markdown";
 import { ChatMode } from "../common/SettingsStoreProvider";
 import { Select } from "../common/select/Select";
 import { StorageKeys } from "../utils/constants";
-import { getCurrentPageContent } from "../utils/getPageContent";
+import { clickElement, getCurrentPageContent, searchByDefaultProvider, typeText } from "../utils/getPageContent";
 import { getAgent } from "../utils/llmChains";
 import { useChatHistory } from "../utils/useChatHistory";
 import { useSettingsStore } from "../utils/useSettingsStore";
 import { useStoredState } from "../utils/useStoredState";
+import { DynamicTool, Tool } from "langchain/tools";
 
 function ChatMessageRow({ message }: { message: BaseChatMessage }) {
   return (
@@ -49,7 +47,7 @@ function ChatMessageRow({ message }: { message: BaseChatMessage }) {
         padding: "0.5rem 0",
       }}
     >
-      <span>{message instanceof HumanChatMessage ? "You: " : "Bot: "}</span>
+      <span>{message instanceof HumanChatMessage ? "You: " : "Miru: "}</span>
       <div>
         <ReactMarkdown children={message.text} />
       </div>
@@ -63,11 +61,7 @@ const ChatModeOptions = [
     value: "with-llm",
   },
   {
-    label: "Chat with page",
-    value: "with-page",
-  },
-  {
-    label: "Chat with agent",
+    label: "Chat with Miru",
     value: "with-agent",
   },
 ];
@@ -79,7 +73,7 @@ export default function Chatbot() {
   const formRef = useRef<HTMLFormElement | null>(null);
   const outputPanelRef = useRef<HTMLDivElement | null>(null);
   const userInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const [, history, setHistory] = useChatHistory([], chatMode);
+  const [, history, setHistory] = useChatHistory([]);
   const [, userInput, setUserInput] = useStoredState<string>({
     storageKey: StorageKeys.USER_INPUT,
     defaultValue: "",
@@ -92,62 +86,25 @@ export default function Chatbot() {
   const [responseStream, setResponseStream] = useState("");
   const [error, setError] = useState<string | undefined>();
   const abortControllerRef = useRef<AbortController | undefined>(undefined);
-  const [pageContentVectorStore, setPageContentVectorStore] =
-    useState<VectorStore>();
 
   useEffect(() => {
     outputPanelRef.current?.scrollTo(0, outputPanelRef.current.scrollHeight);
   }, [history, userInputAwaitingResponse, responseStream]);
 
-  useEffect(() => {
-    let ignore = false;
-
-    async function loadPageIntoVectorStore() {
-      try {
-        const pageContent = await getCurrentPageContent();
-        if (!pageContent?.pageContent) return;
-
-        const textSplitter = new RecursiveCharacterTextSplitter({
-          chunkSize: 4000,
-        });
-
-        const docs = await textSplitter.createDocuments([
-          pageContent.pageContent,
-        ]);
-
-        const vectorStore = await MemoryVectorStore.fromDocuments(
-          docs,
-          new OpenAIEmbeddings({ openAIApiKey })
-        );
-
-        if (ignore) return;
-
-        setPageContentVectorStore(vectorStore);
-      } catch (error) {
-        console.error(error);
-        setError(`Error: ${error}`);
-      }
-    }
-
-    if (chatMode === "with-page") {
-      loadPageIntoVectorStore();
-    }
-
-    return () => {
-      ignore = true;
-    };
-  }, [chatMode, openAIApiKey]);
-
   const chain = useMemo(() => {
     const llm = new ChatOpenAI({
+      modelName: "gpt-3.5-turbo-instruct",
+      // modelName: "gpt-3.5-turbo",
       openAIApiKey: openAIApiKey,
-      // temperature: 0,
+      temperature: 0,
       streaming: true,
-      // verbose: true,
       callbacks: [
         {
           handleLLMNewToken(token: string) {
-            setResponseStream((streamingText) => streamingText + token);
+            setResponseStream((streamingText) => {
+              console.log(streamingText)
+              return streamingText + token
+            });
           },
           handleLLMEnd() {
             setResponseStream("");
@@ -156,30 +113,49 @@ export default function Chatbot() {
       ],
     });
 
-    if (chatMode === "with-page") {
-      if (!pageContentVectorStore) return undefined;
-
-      return ConversationalRetrievalQAChain.fromLLM(
-        llm,
-        pageContentVectorStore.asRetriever(),
-        {
-          // verbose: true,
-          returnSourceDocuments: true,
-          questionGeneratorChainOptions: {
-            // Using a different LLM instance for the rephrased question
-            // generation phase as we don't want that response to be streamed
-            llm: new ChatOpenAI({
-              openAIApiKey: openAIApiKey,
-              streaming: false,
-            }),
-          },
-        }
-      );
-    }
 
     if (chatMode === "with-agent") {
-      const tools = [new Calculator()];
-      return getAgent(llm, tools);
+      const tools = [
+        new DynamicTool({
+          name: "read_page",
+          description:
+            "call this to get the content of active webpage. input should be empty",
+          func: async () => {
+            const pageContent = await getCurrentPageContent();
+            console.log('pageContent', pageContent?.links);
+            return JSON.stringify(pageContent);
+          },
+        }),
+        new DynamicTool({
+          name: "click_element",
+          description:
+            "call this to click any element of active webpage. input should be a css selector of that element in string format.",
+          func: async (cssSelector) => {
+            console.log('cssSelector', cssSelector);
+            const pageContent = await clickElement(cssSelector);
+            return JSON.stringify(pageContent)
+          },
+        }),
+        new DynamicTool({
+          name: "type_text",
+          description: "call this to type text in any input element of active webpage. input should be an object of css selector of that element as attribute 'selector' and the text to be inserted as attribute 'text'.",
+          func: async (payload) => {
+            console.log(payload)
+            const { selector, text} = JSON.parse(payload);
+            const pageContent = await typeText(selector, text);
+            return JSON.stringify(pageContent)
+          },
+        }),
+        new DynamicTool({
+          name: 'search',
+          description: 'search via the default provider',
+          func: async (query) => {
+            const pageContent = await searchByDefaultProvider(query)
+            return JSON.stringify(pageContent)
+          }
+        })
+      ];
+      return getAgent(llm, tools as Tool[]);
     }
 
     return new ConversationChain({
@@ -215,7 +191,7 @@ export default function Chatbot() {
         HumanMessagePromptTemplate.fromTemplate("{input}"),
       ]),
     });
-  }, [openAIApiKey, chatMode, pageContentVectorStore, history, setHistory]);
+  }, [openAIApiKey, chatMode, history, setHistory]);
 
   const sendUserMessage = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -252,6 +228,7 @@ export default function Chatbot() {
             new AIChatMessage(response.text),
           ]);
         } else if (chain instanceof AgentExecutor) {
+          console.log('executing')
           const response = await chain.call({
             input: userInput,
             signal: abortControllerRef.current?.signal,
@@ -316,32 +293,32 @@ export default function Chatbot() {
           userInputAwaitingResponse ||
           responseStream ||
           error) && (
-          <div
-            ref={outputPanelRef}
-            style={{
-              border: "1px solid lightgray",
-              padding: "1rem",
-              textAlign: "left",
-              maxHeight: "20rem",
-              overflowY: "auto",
-            }}
-          >
-            {history.map((message, index) => {
-              return <ChatMessageRow key={index} message={message} />;
-            })}
-            {userInputAwaitingResponse && (
-              <ChatMessageRow
-                message={new HumanChatMessage(userInputAwaitingResponse)}
-              />
-            )}
-            {responseStream && (
-              <ChatMessageRow message={new AIChatMessage(responseStream)} />
-            )}
-            {error && (
-              <ChatMessageRow message={new AIChatMessage(`Error: ${error}`)} />
-            )}
-          </div>
-        )}
+            <div
+              ref={outputPanelRef}
+              style={{
+                border: "1px solid lightgray",
+                padding: "1rem",
+                textAlign: "left",
+                maxHeight: "20rem",
+                overflowY: "auto",
+              }}
+            >
+              {history.map((message, index) => {
+                return <ChatMessageRow key={index} message={message} />;
+              })}
+              {userInputAwaitingResponse && (
+                <ChatMessageRow
+                  message={new HumanChatMessage(userInputAwaitingResponse)}
+                />
+              )}
+              {responseStream && (
+                <ChatMessageRow message={new AIChatMessage(responseStream)} />
+              )}
+              {error && (
+                <ChatMessageRow message={new AIChatMessage(error)} />
+              )}
+            </div>
+          )}
 
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           {(history.length > 0 || userInputAwaitingResponse) && (

@@ -8,7 +8,6 @@ import {
 } from "langchain/schema";
 import { Dispatch, SetStateAction, useCallback, useMemo } from "react";
 import { StorageKeys } from "./constants";
-import { ChatMode } from "../common/SettingsStoreProvider";
 import { useStoredState } from "./useStoredState";
 
 function deserializeMessage(message: StoredMessage): BaseChatMessage {
@@ -25,8 +24,7 @@ function deserializeMessage(message: StoredMessage): BaseChatMessage {
 }
 
 export function useChatHistory(
-  initialState: BaseChatMessage[],
-  chatMode: ChatMode
+  initialState: BaseChatMessage[]
 ): [boolean, BaseChatMessage[], Dispatch<SetStateAction<BaseChatMessage[]>>] {
   const [loading, storedHistory, setStoredHistory] = useStoredState<
     StoredMessage[]
@@ -34,7 +32,7 @@ export function useChatHistory(
     storageKey: StorageKeys.CHAT_HISTORY,
     defaultValue: initialState.map((message) => message.toJSON()),
     storageArea: "local",
-    scope: chatMode === "with-page" ? "page" : "global",
+    scope: "page",
   });
 
   const history = useMemo<BaseChatMessage[]>(() => {

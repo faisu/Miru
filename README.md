@@ -1,4 +1,4 @@
-# PageChat
+# Miru
 
 A Chrome extension that allows you to access ChatGPT from any webpage as well as ask questions about the page you are on or summarize it. 
 
